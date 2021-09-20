@@ -1,0 +1,160 @@
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate // Importing the required classes
+
+import groovy.json.JsonOutput 
+
+import groovy.json.*
+
+import groovy.transform.BaseScript 
+
+import javax.ws.rs.core.MultivaluedMap 
+
+import javax.ws.rs.core.Response 
+
+import groovy.json.JsonSlurper; 
+	
+import java.util.ArrayList;
+
+import com.atlassian.jira.issue.IssueInputParameters 
+
+import groovy.json.StreamingJsonBuilder;  
+
+import com.atlassian.jira.issue.CustomFieldManager;  
+
+import com.onresolve.scriptrunner.runner.util.UserMessageUtil;
+
+import com.atlassian.jira.issue.fields.CustomField;  
+
+import com.atlassian.jira.issue.IssueManager;  
+ 
+import com.atlassian.jira.component.ComponentAccessor;  
+
+import com.atlassian.jira.issue.Issue;  
+
+import com.atlassian.jira.issue.MutableIssue  
+
+import org.apache.commons.codec.binary.Base64;  
+
+import groovyx.net.http.HTTPBuilder  
+
+import static groovyx.net.http.ContentType.*  
+
+import groovyx.net.http.ContentType  
+
+import static groovyx.net.http.Method.*  
+
+import groovy.json.JsonSlurper  
+
+import groovy.json.JsonBuilder  
+
+import net.sf.json.groovy.JsonSlurper  
+
+import groovy.json.JsonOutput  
+
+import com.atlassian.jira.issue.MutableIssue  
+
+import com.atlassian.jira.event.type.EventDispatchOption  
+
+import java.net.URLEncoder;
+
+import javax.ws.rs.core.MediaType
+
+import com.atlassian.sal.api.ApplicationProperties
+import com.atlassian.sal.api.UrlMode
+import com.onresolve.scriptrunner.runner.ScriptRunnerImpl
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import com.onresolve.scriptrunner.runner.util.UserMessageUtil
+import groovy.transform.BaseScript   
+
+import com.onresolve.scriptrunner.runner.util.UserMessageUtil
+  
+String clientId="0d7992c9-0b6a-4c31-bc13-1fe808cd92ac"  // Provide the appropriate Client ID here
+String clienSecret ="hsFF8tKFzRp0vM.F33.vkST9_SqxiA~5U~";// Provide the appropriate Client Seceret here  
+String tenantId="658e9c54-722b-4a2f-b579-2e48c03f8d55"; // Provide the appropriate Tenant ID here
+String teamId = "42d54850-0539-4979-b3fb-efdea6dec724"; // Provide the appropriate Team ID here
+
+//---------------------------------------------------------Generating the Bearer Token--------------------------------------------------// 
+def accessBody = "grant_type=client_credentials&client_id="+clientId+"&scope=https://graph.microsoft.com/.default&client_secret="+clienSecret
+def tokenBaseUrl = "https://login.microsoftonline.com/"+tenantId+"/oauth2/v2.0/token" 
+URL accessTokenUrl = new URL(tokenBaseUrl);  
+HttpURLConnection tokenConnection = accessTokenUrl.openConnection() as HttpURLConnection;  
+tokenConnection.requestMethod = "POST"  
+tokenConnection.doOutput = true  
+tokenConnection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")  
+def jsonObject; 
+try  
+{ 
+    OutputStream os = tokenConnection.getOutputStream() 
+    byte[] input = accessBody.getBytes("utf-8"); 
+    os.write(input, 0, input.length);	 
+    tokenConnection.connect(); 
+} 
+catch(Exception ex){ 
+    
+} 
+try { // Reading the Response
+    BufferedReader tokenBufferReader = new BufferedReader( 
+    new InputStreamReader(tokenConnection.getInputStream(), "utf-8")) 
+    StringBuilder tokenResponse = new StringBuilder(); 
+    String tokenResponseLine = null; 
+    while ((tokenResponseLine = tokenBufferReader.readLine()) != null) {//Appending the response to the StringBuilder object 
+    tokenResponse.append(tokenResponseLine.trim()); 
+    } 
+    def jsonSlurper = new JsonSlurper() //Parsing the Json to get the access token
+ 	jsonObject = jsonSlurper.parseText(tokenResponse.toString()) 
+    assert jsonObject instanceof Map   
+    log.warn(jsonObject.access_token) 
+    log.warn(tokenResponse.toString()); 
+} 
+catch(Exception ex){ 
+log.warn(ex.toString())   
+} 
+def bearerToken = jsonObject.access_token.toString()  
+log.warn(bearerToken);
+//------------------------------------------Get Channel count---------------------------------------------------//
+
+String issueSummary= issue.summary.toString();  
+issueSummary = issueSummary.replaceAll("[~#%&*{}+/:<>?|'\".]","_");//Replacing the following special characters with "_"
+issueSummary = issueSummary.replace('\\','_');//Replacing "\" with "_" 
+String displayName=issue.key+" - "+issueSummary; 
+//String displayName="jira"+"-"+issue.key;    
+log.warn(displayName)
+if(displayName.length() > 50 ){//check whether the character count of issue key and issue summary doesnot exceed 50
+    displayName = displayName.substring(0, 50);
+}
+def getChannelUrl = "https://graph.microsoft.com/v1.0/teams/"+teamId+"/channels?\$filter=displayName eq '"+displayName+"'";
+
+def teamsDisplayName; 
+String stringResponse;
+URL objGetChannel = new URL(getChannelUrl.replace(" ", "%20"));
+  HttpURLConnection objChannelConnection = (HttpURLConnection) objGetChannel.openConnection();
+   objChannelConnection.setRequestMethod("GET");
+   objChannelConnection.doOutput = true ;
+   objChannelConnection.setRequestProperty("Authorization","Bearer " + bearerToken);
+   objChannelConnection.setRequestProperty("Content-Type","application/json");
+   objChannelConnection.setRequestProperty("Accept","application/json");
+   objChannelConnection.connect();
+try{// Reading the response
+   BufferedReader channelBuffer = new BufferedReader(new InputStreamReader(objChannelConnection.getInputStream()));
+                StringBuilder channelBuilder = new StringBuilder();
+                String channelLine;      
+                while ((channelLine = channelBuffer.readLine()) != null) {// Append the response to the StringBuilder object
+                    channelBuilder.append(channelLine+"\n");             
+                }
+                channelBuffer.close();       
+       			String response = channelBuilder.toString();
+                def splitResponse = response.split("@odata.count\":");
+                String countString=splitResponse[1]
+                def count=countString.split(",")
+				String channelCount=count[0].toString()//Getting the channel count
+                if(channelCount!="0"){//Checking whether the channel count is zero or not. 
+                    				 //If the count is Zero then there is no channel present in the Team with the mentioned display name
+                   true
+                }
+                else{
+                  false
+                }
+
+}
+catch(Exception ex){
+ log.warn(ex.toString())
+}
